@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
   },
   icon: {
     fontSize: 64,
-    marginBottom: 25,
+    marginBottom: 24,
   },
   title: {
     textAlign: 'center',
