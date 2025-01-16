@@ -30,11 +30,12 @@ export const AuthService = {
   },
 
   // Login de usuário
-  login: async (email: string, password: string) => {
+  signIn: async (email: string, password: string) => {
     try {
       const userCredential = await auth().signInWithEmailAndPassword(email, password);
       return { user: userCredential.user, error: null };
     } catch (error: any) {
+      console.error('Error signing in:', error);
       let errorMessage = 'Erro ao fazer login';
       
       switch (error.code) {

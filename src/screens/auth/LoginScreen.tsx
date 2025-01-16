@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { TextInput, Button, Text, useTheme, HelperText } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthService } from '../../services/auth';
+import { Alert } from 'react-native';
 
 export const LoginScreen = ({ navigation }: any) => {
   const [email, setEmail] = useState('');
@@ -21,14 +22,16 @@ export const LoginScreen = ({ navigation }: any) => {
     setError('');
 
     try {
-      const { user, error: loginError } = await AuthService.login(email, password);
+      setLoading(true);
+      const { error } = await AuthService.signIn(email, password);
       
-      if (loginError) {
-        setError(loginError);
-      } else if (user) {
-        // TODO: Navegar para a tela principal
-        console.log('Login successful:', user.uid);
+      if (error) {
+        Alert.alert('Erro', error);
+        return;
       }
+
+      // Se o login for bem-sucedido, navegar para MainApp
+      navigation.replace('MainApp');
     } catch (err) {
       setError('Erro ao fazer login. Tente novamente.');
     } finally {
