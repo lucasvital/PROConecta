@@ -18,6 +18,7 @@ interface UserProfile {
   hasPhoto?: boolean;
   clientRating?: number;
   totalServicesRequested?: number;
+  id: string;
 }
 
 export const ProfileScreen = () => {
@@ -66,37 +67,23 @@ export const ProfileScreen = () => {
 
   const loadProfile = async () => {
     try {
+      setLoading(true);
       const currentUser = auth().currentUser;
       if (!currentUser) return;
 
-      // Carregar dados do perfil
-      const userData = await UserService.getUserProfile(currentUser.uid);
-      if (userData) {
-        // Carregar avaliações
-        const ratings = await UserService.getUserRatings(currentUser.uid, userData.userType);
-        
-        // Calcular média e total
-        const totalRatings = ratings.length;
-        const averageRating = totalRatings > 0 
-          ? ratings.reduce((acc, r) => acc + r.rating, 0) / totalRatings 
-          : 0;
+      const userProfile = await UserService.getUserProfile(currentUser.uid);
+      if (userProfile) {
+        setProfile(userProfile);
+      }
 
-        // Atualizar perfil com dados calculados
-        const updatedProfile = {
-          ...userData,
-          rating: userData.userType === 'provider' ? averageRating : userData.rating,
-          clientRating: userData.userType === 'client' ? averageRating : userData.clientRating,
-          servicesCompleted: userData.userType === 'provider' ? totalRatings : userData.servicesCompleted,
-          totalServicesRequested: userData.userType === 'client' ? totalRatings : userData.totalServicesRequested,
-        };
-        
-        setProfile(updatedProfile);
-        
-        // Carregar foto do perfil se existir
-        if (userData.hasPhoto) {
-          const photoUri = await AsyncStorage.getItem(`@user_photo_${currentUser.uid}`);
+      // Carregar foto do perfil
+      try {
+        const photoUri = await AsyncStorage.getItem(`profilePhoto_${currentUser.uid}`);
+        if (photoUri) {
           setProfileImage(photoUri);
         }
+      } catch (error) {
+        console.error('Error loading profile photo:', error);
       }
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -121,254 +108,132 @@ export const ProfileScreen = () => {
     }
   };
 
-  const renderProviderProfile = () => (
-    <ScrollView style={styles.scrollView}>
-      <View style={styles.header}>
-        {profileImage ? (
-          <Image
-            source={{ uri: profileImage }}
-            style={styles.profileImage}
-          />
-        ) : (
-          <Avatar.Icon
-            size={120}
-            icon="account"
-            style={{ backgroundColor: theme.colors.surfaceVariant }}
-          />
-        )}
-        {isEditing ? (
-          <TextInput
-            value={editedName}
-            onChangeText={setEditedName}
-            style={styles.nameInput}
-            mode="outlined"
-          />
-        ) : (
-          <Text variant="headlineSmall" style={styles.name}>
-            {profile?.name}
-          </Text>
-        )}
-        <View style={styles.ratingContainer}>
-          <Icon name="star" size={24} color={theme.colors.primary} />
-          <Text 
-            variant="titleMedium"
-            onPress={() => navigation.navigate('Reviews', { userType: 'provider' })}
-          >
-            {profile?.rating?.toFixed(1) || '0.0'} ({profile?.servicesCompleted || 0} serviços)
-          </Text>
-        </View>
-      </View>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <View style={styles.sectionHeader}>
-            <Text variant="titleMedium" style={styles.sectionTitle}>
-              Sobre mim
-            </Text>
-            {!isEditing && (
-              <IconButton
-                icon="pencil"
-                size={20}
-                onPress={() => setIsEditing(true)}
-              />
-            )}
-          </View>
-          {isEditing ? (
-            <View>
-              <TextInput
-                value={editedDescription}
-                onChangeText={setEditedDescription}
-                placeholder="Conte um pouco sobre você..."
-                placeholderTextColor={theme.colors.onSurfaceVariant}
-                multiline
-                numberOfLines={4}
-                style={[
-                  styles.descriptionInput,
-                  { 
-                    backgroundColor: theme.colors.surfaceVariant,
-                    color: theme.colors.onSurface
-                  }
-                ]}
-              />
-              <View style={styles.editButtons}>
-                <Button
-                  mode="outlined"
-                  onPress={() => {
-                    setIsEditing(false);
-                    setEditedDescription(profile?.description || '');
-                  }}
-                  style={styles.editButton}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  mode="contained"
-                  onPress={handleSaveProfile}
-                  style={styles.editButton}
-                >
-                  Salvar
-                </Button>
-              </View>
-            </View>
-          ) : (
-            <Text variant="bodyMedium" style={styles.description}>
-              {profile?.description || 'Nenhuma descrição fornecida'}
-            </Text>
-          )}
-        </Card.Content>
-      </Card>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
-            Serviços Realizados
-          </Text>
-          <List.Item
-            title="Total de serviços"
-            left={props => <List.Icon {...props} icon="briefcase-outline" />}
-            right={() => <Text>{profile?.servicesCompleted || 0}</Text>}
-            onPress={() => navigation.navigate('ServiceHistory', { userType: 'provider' })}
-          />
-          <Divider />
-          <List.Item
-            title="Avaliação média"
-            left={props => <List.Icon {...props} icon="star-outline" />}
-            right={() => <Text>{profile?.rating?.toFixed(1) || '0.0'}</Text>}
-            onPress={() => navigation.navigate('Reviews', { userType: 'provider' })}
-          />
-        </Card.Content>
-      </Card>
-
-      <Button
-        mode="outlined"
-        onPress={handleLogout}
-        style={styles.logoutButton}
-      >
-        Sair
-      </Button>
-    </ScrollView>
-  );
-
-  const renderClientProfile = () => (
-    <ScrollView style={styles.scrollView}>
-      <View style={styles.header}>
-        {profileImage ? (
-          <Image
-            source={{ uri: profileImage }}
-            style={styles.profileImage}
-          />
-        ) : (
-          <Avatar.Icon
-            size={120}
-            icon="account"
-            style={{ backgroundColor: theme.colors.surfaceVariant }}
-          />
-        )}
-        {isEditing ? (
-          <TextInput
-            value={editedName}
-            onChangeText={setEditedName}
-            style={styles.nameInput}
-            mode="outlined"
-          />
-        ) : (
-          <Text variant="headlineSmall" style={styles.name}>
-            {profile?.name}
-          </Text>
-        )}
-        <View style={styles.ratingContainer}>
-          <Icon name="star" size={24} color={theme.colors.primary} />
-          <Text 
-            variant="titleMedium"
-            onPress={() => navigation.navigate('Reviews', { userType: 'client' })}
-          >
-            {profile?.clientRating?.toFixed(1) || '0.0'} (como cliente)
-          </Text>
-        </View>
-      </View>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <View style={styles.sectionHeader}>
-            <Text variant="titleMedium" style={styles.sectionTitle}>
-              Meus Dados
-            </Text>
-            {!isEditing && (
-              <IconButton
-                icon="pencil"
-                size={20}
-                onPress={() => setIsEditing(true)}
-              />
-            )}
-          </View>
-          <List.Item
-            title="Email"
-            description={profile?.email}
-            left={props => <List.Icon {...props} icon="email-outline" />}
-          />
-          {isEditing && (
-            <View style={styles.editButtons}>
-              <Button
-                mode="outlined"
-                onPress={() => setIsEditing(false)}
-                style={styles.editButton}
-              >
-                Cancelar
-              </Button>
-              <Button
-                mode="contained"
-                onPress={handleSaveProfile}
-                style={styles.editButton}
-              >
-                Salvar
-              </Button>
-            </View>
-          )}
-        </Card.Content>
-      </Card>
-
-      <Card style={styles.card}>
-        <Card.Content>
-          <Text variant="titleMedium" style={styles.sectionTitle}>
-            Histórico e Avaliações
-          </Text>
-          <List.Item
-            title="Serviços solicitados"
-            left={props => <List.Icon {...props} icon="history" />}
-            right={() => <Text>{profile?.totalServicesRequested || 0}</Text>}
-            onPress={() => navigation.navigate('ServiceHistory', { userType: 'client' })}
-          />
-          <Divider />
-          <List.Item
-            title="Avaliação como cliente"
-            left={props => <List.Icon {...props} icon="star-outline" />}
-            right={() => <Text>{profile?.clientRating?.toFixed(1) || '0.0'}</Text>}
-            onPress={() => navigation.navigate('Reviews', { userType: 'client' })}
-          />
-        </Card.Content>
-      </Card>
-
-      <Button
-        mode="outlined"
-        onPress={handleLogout}
-        style={styles.logoutButton}
-      >
-        Sair
-      </Button>
-    </ScrollView>
-  );
-
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <Text>Carregando...</Text>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {profile?.userType === 'provider' ? renderProviderProfile() : renderClientProfile()}
+      <ScrollView style={styles.content}>
+        {loading ? (
+          <Text>Carregando...</Text>
+        ) : profile ? (
+          <>
+            <View style={styles.profileHeader}>
+              {profileImage ? (
+                <Avatar.Image
+                  size={100}
+                  source={{ uri: profileImage }}
+                  style={styles.avatar}
+                />
+              ) : (
+                <Avatar.Icon
+                  size={100}
+                  icon="account"
+                  style={styles.avatar}
+                />
+              )}
+              <View style={styles.nameContainer}>
+                {isEditing ? (
+                  <TextInput
+                    value={editedName}
+                    onChangeText={setEditedName}
+                    style={styles.nameInput}
+                  />
+                ) : (
+                  <Text variant="headlineMedium">{profile.name}</Text>
+                )}
+                <Text variant="bodyLarge" style={{ color: theme.colors.primary }}>
+                  {profile.userType === 'client' ? 'Cliente' : 'Prestador'}
+                </Text>
+              </View>
+              <IconButton
+                icon={isEditing ? 'check' : 'pencil'}
+                onPress={isEditing ? handleSaveProfile : () => setIsEditing(true)}
+              />
+            </View>
+
+            <Card style={styles.card}>
+              <Card.Content>
+                <Text variant="titleMedium">Sobre</Text>
+                {isEditing ? (
+                  <TextInput
+                    value={editedDescription}
+                    onChangeText={setEditedDescription}
+                    multiline
+                    numberOfLines={4}
+                    style={styles.descriptionInput}
+                  />
+                ) : (
+                  <Text variant="bodyMedium" style={styles.description}>
+                    {profile.description || 'Nenhuma descrição fornecida'}
+                  </Text>
+                )}
+              </Card.Content>
+            </Card>
+
+            <Card style={styles.card}>
+              <Card.Content>
+                <Text variant="titleMedium" style={styles.sectionTitle}>
+                  Estatísticas
+                </Text>
+                <View style={styles.statsContainer}>
+                  <View style={styles.statItem}>
+                    <Icon name="star" size={24} color={theme.colors.primary} />
+                    <Text variant="titleLarge">
+                      {profile.userType === 'client' 
+                        ? profile.clientRating?.toFixed(1) || '0.0'
+                        : profile.rating?.toFixed(1) || '0.0'}
+                    </Text>
+                    <Text variant="bodyMedium">Avaliação</Text>
+                  </View>
+
+                  <View style={styles.statItem}>
+                    <Icon 
+                      name={profile.userType === 'client' ? 'clipboard-list' : 'check-circle'} 
+                      size={24} 
+                      color={theme.colors.primary} 
+                    />
+                    <Text variant="titleLarge">
+                      {profile.userType === 'client' 
+                        ? profile.totalServicesRequested || 0
+                        : profile.servicesCompleted || 0}
+                    </Text>
+                    <Text variant="bodyMedium">
+                      {profile.userType === 'client' 
+                        ? 'Serviços Solicitados' 
+                        : 'Serviços Concluídos'}
+                    </Text>
+                  </View>
+                </View>
+              </Card.Content>
+            </Card>
+
+            <List.Section>
+              <List.Item
+                title="Histórico de Serviços"
+                left={props => <List.Icon {...props} icon="history" />}
+                right={props => <List.Icon {...props} icon="chevron-right" />}
+                onPress={() => navigation.navigate('ServiceHistory', { userType: profile.userType })}
+              />
+              <List.Item
+                title="Avaliações"
+                left={props => <List.Icon {...props} icon="star" />}
+                right={props => <List.Icon {...props} icon="chevron-right" />}
+                onPress={() => navigation.navigate('Reviews', { userId: profile.id, userType: profile.userType })}
+              />
+              <List.Item
+                title="Configurações"
+                left={props => <List.Icon {...props} icon="cog" />}
+                right={props => <List.Icon {...props} icon="chevron-right" />}
+                onPress={() => {/* TODO: Implementar tela de configurações */}}
+              />
+              <List.Item
+                title="Sair"
+                left={props => <List.Icon {...props} icon="logout" color={theme.colors.error} />}
+                onPress={handleLogout}
+                titleStyle={{ color: theme.colors.error }}
+              />
+            </List.Section>
+          </>
+        ) : null}
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -377,26 +242,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scrollView: {
+  content: {
     flex: 1,
   },
-  header: {
-    alignItems: 'center',
-    padding: 20,
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: 16,
-  },
-  name: {
-    marginBottom: 8,
-  },
-  ratingContainer: {
+  profileHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    padding: 20,
+  },
+  avatar: {
+    marginRight: 16,
+  },
+  nameContainer: {
+    flex: 1,
+  },
+  nameInput: {
+    width: '100%',
+    marginBottom: 8,
   },
   card: {
     margin: 16,
@@ -404,34 +267,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: 16,
-  },
-  logoutButton: {
-    margin: 16,
-  },
-  ratingInfo: {
-    marginTop: 8,
-    marginLeft: 16,
-    fontStyle: 'italic',
-    opacity: 0.7,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  nameInput: {
-    width: '80%',
-    marginBottom: 8,
-  },
-  editButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 16,
-    gap: 8,
-  },
-  editButton: {
-    minWidth: 100,
   },
   descriptionInput: {
     minHeight: 100,
@@ -443,5 +278,12 @@ const styles = StyleSheet.create({
   },
   description: {
     lineHeight: 24,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statItem: {
+    alignItems: 'center',
   },
 });

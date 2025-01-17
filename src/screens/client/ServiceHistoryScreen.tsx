@@ -6,10 +6,11 @@ import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { UserService } from '../../services/user';
 import { ServiceService, ServiceRequest } from '../../services/service';
+import firestore from '@react-native-firebase/firestore';
 
 export const ServiceHistoryScreen = ({ route, navigation }: any) => {
-  const { userType } = route.params;
   const theme = useTheme();
+  const [userType, setUserType] = useState<'client' | 'provider'>(route.params?.userType || 'client');
   const [services, setServices] = useState<ServiceRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -17,6 +18,39 @@ export const ServiceHistoryScreen = ({ route, navigation }: any) => {
   const [selectedService, setSelectedService] = useState<ServiceRequest | null>(null);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
+
+  // Estilos que dependem do tema
+  const dynamicStyles = {
+    date: {
+      marginTop: 4,
+      color: theme.colors.onSurfaceVariant,
+    },
+    modal: {
+      backgroundColor: theme.colors.background,
+      padding: 20,
+      margin: 20,
+      borderRadius: 8,
+    },
+  };
+
+  // Carregar o tipo de usuário do Firestore se não for fornecido nos parâmetros
+  useEffect(() => {
+    const loadUserType = async () => {
+      if (!route.params?.userType) {
+        const currentUser = auth().currentUser;
+        if (currentUser) {
+          const userDoc = await firestore()
+            .collection('users')
+            .doc(currentUser.uid)
+            .get();
+          
+          setUserType(userDoc.data()?.userType || 'client');
+        }
+      }
+    };
+
+    loadUserType();
+  }, [route.params?.userType]);
 
   const loadServices = async () => {
     try {
@@ -30,20 +64,49 @@ export const ServiceHistoryScreen = ({ route, navigation }: any) => {
       console.error('Error loading services:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const handleRate = async () => {
-    if (!selectedService || !rating) return;
+  useEffect(() => {
+    loadServices();
+  }, [userType]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadServices();
+  };
+
+  const handleStatusUpdate = async (service: ServiceRequest, newStatus: ServiceRequest['status']) => {
+    try {
+      await ServiceService.updateServiceStatus(service.id, newStatus);
+      
+      // Se o serviço foi concluído, mostrar modal de avaliação
+      if (newStatus === 'completed') {
+        setSelectedService(service);
+        setRatingModalVisible(true);
+      }
+      
+      loadServices(); // Recarregar a lista
+    } catch (error) {
+      console.error('Error updating service status:', error);
+      alert('Erro ao atualizar status do serviço');
+    }
+  };
+
+  const handleRating = async () => {
+    if (!selectedService || rating === 0) {
+      alert('Por favor, selecione uma avaliação');
+      return;
+    }
 
     try {
       const currentUser = auth().currentUser;
       if (!currentUser) return;
 
       if (userType === 'client') {
-        // Cliente avaliando prestador
         await UserService.updateProviderRating(
-          selectedService.providerId,
+          selectedService.providerId!,
           currentUser.uid,
           {
             rating,
@@ -52,7 +115,6 @@ export const ServiceHistoryScreen = ({ route, navigation }: any) => {
           }
         );
       } else {
-        // Prestador avaliando cliente
         await UserService.updateClientRating(
           selectedService.clientId,
           currentUser.uid,
@@ -64,122 +126,234 @@ export const ServiceHistoryScreen = ({ route, navigation }: any) => {
         );
       }
 
-      // Atualiza a lista local
-      await loadServices();
-
-      // Limpa o estado
       setRatingModalVisible(false);
-      setSelectedService(null);
       setRating(0);
       setComment('');
+      loadServices();
     } catch (error) {
-      console.error('Error rating service:', error);
+      console.error('Error submitting rating:', error);
+      alert('Erro ao enviar avaliação');
     }
   };
 
-  const canRateService = (service: ServiceRequest) => {
-    if (service.status !== 'completed') return false;
+  const renderServiceCard = (service: ServiceRequest) => {
+    const statusColors = {
+      pending: theme.colors.primary,
+      negotiating: theme.colors.secondary,
+      accepted: '#4CAF50',
+      in_progress: '#2196F3',
+      completed: '#9C27B0',
+      cancelled: '#F44336',
+    };
 
-    if (userType === 'client') {
-      return !service.clientRating;
-    } else {
-      return !service.providerRating;
-    }
-  };
+    const statusLabels = {
+      pending: 'Pendente',
+      negotiating: 'Em Negociação',
+      accepted: 'Aceito',
+      in_progress: 'Em Andamento',
+      completed: 'Concluído',
+      cancelled: 'Cancelado',
+    };
 
-  const getServiceRating = (service: ServiceRequest) => {
-    if (userType === 'client') {
-      return service.clientRating;
-    } else {
-      return service.providerRating;
-    }
-  };
+    const isProvider = userType === 'provider';
+    const showChat = service.status !== 'pending' && service.status !== 'cancelled' && service.status !== 'completed';
+    const canAccept = service.status === 'pending' && isProvider;
+    const canProgress = service.status === 'accepted' && isProvider;
+    const canComplete = service.status === 'in_progress' && isProvider;
+    const canRate = service.status === 'completed';
 
-  const renderServiceCard = (service: ServiceRequest) => (
-    <Card key={service.id} style={styles.card}>
-      <Card.Content>
-        <View style={styles.cardHeader}>
-          <View>
-            <Text variant="titleMedium">{service.serviceType}</Text>
-            <Text variant="bodySmall" style={styles.date}>
-              {service.createdAt.toLocaleDateString()}
-            </Text>
-          </View>
-          <Chip
-            style={{ backgroundColor: getStatusColor(service.status) }}
-            textStyle={{ color: theme.colors.surface }}
-          >
-            {getStatusText(service.status)}
-          </Chip>
-        </View>
+    const handleAccept = async () => {
+      try {
+        await ServiceService.updateServiceStatus(service.id!, 'accepted');
+        // Navegar para o chat após aceitar
+        navigation.navigate('Chat', { serviceId: service.id });
+      } catch (error) {
+        console.error('Error accepting service:', error);
+      }
+    };
 
-        <Text variant="bodyMedium" style={styles.description}>
-          {service.description}
-        </Text>
+    const handleProgress = async () => {
+      try {
+        await ServiceService.updateServiceStatus(service.id!, 'in_progress');
+      } catch (error) {
+        console.error('Error updating service status:', error);
+      }
+    };
 
-        <Divider style={styles.divider} />
-
-        <View style={styles.cardFooter}>
-          <View>
-            <Text variant="bodyMedium">
-              {userType === 'client' ? service.providerName : service.clientName}
-            </Text>
-            {getServiceRating(service) && (
-              <View style={styles.ratingContainer}>
-                <Icon name="star" size={16} color={theme.colors.primary} />
-                <Text>{getServiceRating(service)?.toFixed(1)}</Text>
-              </View>
-            )}
-          </View>
-
-          {canRateService(service) && (
-            <Button
-              mode="contained"
-              onPress={() => {
-                setSelectedService(service);
-                setRatingModalVisible(true);
-              }}
-            >
-              Avaliar
-            </Button>
-          )}
-        </View>
-      </Card.Content>
-    </Card>
-  );
-
-  const renderRatingModal = () => {
-    const modalContainerStyle = {
-      backgroundColor: theme.colors.surface,
-      padding: 20,
-      margin: 20,
-      borderRadius: 8,
+    const handleComplete = async () => {
+      try {
+        await ServiceService.updateServiceStatus(service.id!, 'completed');
+      } catch (error) {
+        console.error('Error completing service:', error);
+      }
     };
 
     return (
+      <Card key={service.id} style={styles.card}>
+        <Card.Content>
+          <View style={styles.cardHeader}>
+            <View>
+              <Text variant="titleMedium">{service.title}</Text>
+              <Text variant="bodySmall" style={dynamicStyles.date}>
+                {service.createdAt.toLocaleDateString()}
+              </Text>
+            </View>
+            <Chip
+              mode="flat"
+              textStyle={{ color: '#FFFFFF' }}
+              style={[styles.statusChip, { backgroundColor: statusColors[service.status] }]}
+            >
+              {statusLabels[service.status]}
+            </Chip>
+          </View>
+
+          <Text variant="bodyMedium" style={{ marginTop: 8 }}>
+            {service.description}
+          </Text>
+
+          <View style={styles.locationContainer}>
+            <Icon name="map-marker" size={20} color={theme.colors.primary} />
+            <Text variant="bodyMedium" style={styles.locationText}>
+              {service.location.address}
+            </Text>
+          </View>
+
+          {service.value > 0 && (
+            <Text variant="titleMedium" style={{ marginTop: 8 }}>
+              Valor: R$ {service.value.toFixed(2)}
+            </Text>
+          )}
+
+          <View style={styles.actionButtons}>
+            {showChat && (
+              <Button
+                mode="contained"
+                onPress={() => navigation.navigate('Chat', { serviceId: service.id })}
+                icon="chat"
+                style={styles.actionButton}
+              >
+                Chat
+              </Button>
+            )}
+
+            {canAccept && (
+              <Button
+                mode="contained"
+                onPress={handleAccept}
+                icon="check"
+                style={styles.actionButton}
+              >
+                Aceitar
+              </Button>
+            )}
+
+            {canProgress && (
+              <Button
+                mode="contained"
+                onPress={handleProgress}
+                icon="play"
+                style={styles.actionButton}
+              >
+                Iniciar
+              </Button>
+            )}
+
+            {canComplete && (
+              <Button
+                mode="contained"
+                onPress={handleComplete}
+                icon="flag-checkered"
+                style={styles.actionButton}
+              >
+                Concluir
+              </Button>
+            )}
+
+            {service.status !== 'completed' && service.status !== 'cancelled' && (
+              <Button
+                mode="outlined"
+                onPress={() => handleStatusUpdate(service.id!, 'cancelled')}
+                icon="close"
+                style={styles.actionButton}
+              >
+                Cancelar
+              </Button>
+            )}
+
+            {canRate && !service.providerRating && userType === 'client' && (
+              <Button
+                mode="contained"
+                onPress={() => {
+                  setSelectedService(service);
+                  setRatingModalVisible(true);
+                }}
+                icon="star"
+                style={styles.actionButton}
+              >
+                Avaliar Prestador
+              </Button>
+            )}
+
+            {canRate && !service.clientRating && userType === 'provider' && (
+              <Button
+                mode="contained"
+                onPress={() => {
+                  setSelectedService(service);
+                  setRatingModalVisible(true);
+                }}
+                icon="star"
+                style={styles.actionButton}
+              >
+                Avaliar Cliente
+              </Button>
+            )}
+          </View>
+        </Card.Content>
+      </Card>
+    );
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <ScrollView
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        style={styles.content}
+      >
+        {loading ? (
+          <Text>Carregando...</Text>
+        ) : services.length > 0 ? (
+          services.map(service => renderServiceCard(service))
+        ) : (
+          <Text style={styles.emptyText}>
+            Nenhum serviço encontrado
+          </Text>
+        )}
+      </ScrollView>
+
       <Portal>
         <Modal
           visible={ratingModalVisible}
-          onDismiss={() => setRatingModalVisible(false)}
-          contentContainerStyle={modalContainerStyle}
+          onDismiss={() => {
+            setRatingModalVisible(false);
+            setRating(0);
+            setComment('');
+          }}
+          contentContainerStyle={dynamicStyles.modal}
         >
           <Text variant="titleLarge" style={styles.modalTitle}>
             Avaliar {userType === 'client' ? 'Prestador' : 'Cliente'}
-          </Text>
-          <Text variant="bodyMedium" style={styles.modalSubtitle}>
-            {selectedService?.serviceType} - {userType === 'client' 
-              ? selectedService?.providerName 
-              : selectedService?.clientName}
           </Text>
 
           <View style={styles.ratingContainer}>
             {[1, 2, 3, 4, 5].map((star) => (
               <IconButton
                 key={star}
-                icon="star"
+                icon={star <= rating ? 'star' : 'star-outline'}
                 size={32}
-                iconColor={star <= rating ? theme.colors.primary : theme.colors.surfaceVariant}
                 onPress={() => setRating(star)}
+                iconColor={star <= rating ? theme.colors.primary : theme.colors.onSurfaceVariant}
               />
             ))}
           </View>
@@ -188,7 +362,6 @@ export const ServiceHistoryScreen = ({ route, navigation }: any) => {
             label="Comentário (opcional)"
             value={comment}
             onChangeText={setComment}
-            mode="outlined"
             multiline
             numberOfLines={4}
             style={styles.commentInput}
@@ -197,104 +370,25 @@ export const ServiceHistoryScreen = ({ route, navigation }: any) => {
           <View style={styles.modalButtons}>
             <Button
               mode="outlined"
-              onPress={() => setRatingModalVisible(false)}
+              onPress={() => {
+                setRatingModalVisible(false);
+                setRating(0);
+                setComment('');
+              }}
               style={styles.modalButton}
             >
               Cancelar
             </Button>
             <Button
               mode="contained"
-              onPress={handleRate}
+              onPress={handleRating}
               style={styles.modalButton}
-              disabled={!rating}
             >
-              Avaliar
+              Enviar
             </Button>
           </View>
         </Modal>
       </Portal>
-    );
-  };
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadServices();
-    setRefreshing(false);
-  };
-
-  useEffect(() => {
-    loadServices();
-  }, []);
-
-  const getStatusText = (status: ServiceRequest['status']) => {
-    switch (status) {
-      case 'pending':
-        return 'Pendente';
-      case 'accepted':
-        return 'Aceito';
-      case 'in_progress':
-        return 'Em Andamento';
-      case 'completed':
-        return 'Concluído';
-      case 'cancelled':
-        return 'Cancelado';
-      default:
-        return status;
-    }
-  };
-
-  const getStatusColor = (status: ServiceRequest['status']) => {
-    switch (status) {
-      case 'pending':
-        return theme.colors.warning;
-      case 'accepted':
-        return theme.colors.primary;
-      case 'in_progress':
-        return theme.colors.info;
-      case 'completed':
-        return theme.colors.success;
-      case 'cancelled':
-        return theme.colors.error;
-      default:
-        return theme.colors.surfaceVariant;
-    }
-  };
-
-  if (loading) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <Text>Carregando...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={styles.header}>
-        <IconButton
-          icon="arrow-left"
-          size={24}
-          onPress={() => navigation.goBack()}
-        />
-        <Text variant="headlineSmall">Histórico de Serviços</Text>
-      </View>
-      <ScrollView
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        contentContainerStyle={styles.scrollContent}
-      >
-        {services.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Nenhum serviço encontrado
-          </Text>
-        ) : (
-          services.map(renderServiceCard)
-        )}
-      </ScrollView>
-      {renderRatingModal()}
     </SafeAreaView>
   );
 };
@@ -303,22 +397,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  loadingContainer: {
+  content: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     padding: 16,
-  },
-  scrollContent: {
-    padding: 16,
-  },
-  emptyText: {
-    textAlign: 'center',
-    marginTop: 32,
   },
   card: {
     marginBottom: 16,
@@ -327,44 +408,59 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 8,
   },
-  date: {
-    marginTop: 4,
-  },
-  description: {
-    marginVertical: 8,
+  statusChip: {
+    height: 24,
   },
   divider: {
     marginVertical: 12,
   },
-  cardFooter: {
+  locationContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 8,
+  },
+  locationText: {
+    marginLeft: 4,
+    flex: 1,
+  },
+  dateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  dateText: {
+    marginLeft: 4,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 16,
+  },
+  actionButton: {
+    marginLeft: 8,
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 32,
+  },
+  modalTitle: {
+    textAlign: 'center',
+    marginBottom: 16,
   },
   ratingContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
-  },
-  modalTitle: {
-    marginBottom: 8,
-  },
-  modalSubtitle: {
+    justifyContent: 'center',
     marginBottom: 16,
   },
   commentInput: {
-    marginTop: 16,
+    marginBottom: 16,
   },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    marginTop: 16,
-    gap: 8,
   },
   modalButton: {
-    minWidth: 100,
+    marginLeft: 8,
   },
 });

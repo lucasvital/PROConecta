@@ -100,21 +100,29 @@ export const UserService = {
   // Buscar perfil do usuário
   getUserProfile: async (uid: string) => {
     try {
-      const userDoc = await firestore()
-        .collection('users')
-        .doc(uid)
+      const userDoc = await firestore().collection('users').doc(uid).get();
+      if (!userDoc.exists) return null;
+
+      // Buscar contagem de serviços
+      const servicesSnapshot = await firestore()
+        .collection('services')
+        .where('clientId', '==', uid)
         .get();
 
-      if (!userDoc.exists) {
-        throw new Error('Usuário não encontrado');
-      }
+      const completedServicesSnapshot = await firestore()
+        .collection('services')
+        .where('providerId', '==', uid)
+        .where('status', '==', 'completed')
+        .get();
 
-      const userData = userDoc.data() as UserProfile;
+      const userData = userDoc.data();
       return {
-        ...userData,
         id: userDoc.id,
-        createdAt: userData.createdAt.toDate(),
-        updatedAt: userData.updatedAt.toDate(),
+        ...userData,
+        totalServicesRequested: servicesSnapshot.size,
+        servicesCompleted: completedServicesSnapshot.size,
+        createdAt: userData?.createdAt?.toDate(),
+        updatedAt: userData?.updatedAt?.toDate(),
       };
     } catch (error) {
       console.error('Error getting user profile:', error);
