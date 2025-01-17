@@ -30,8 +30,9 @@ const baseColors = {
   secondary: '#FFC107',
 };
 
-const lightTheme = {
+export const lightTheme = {
   ...MD3LightTheme,
+  dark: false,
   fonts: configureFonts({config: fontConfig}),
   colors: {
     ...MD3LightTheme.colors,
@@ -39,13 +40,16 @@ const lightTheme = {
     background: '#FFFFFF',
     surface: '#F5F5F5',
     text: '#000000',
+    onBackground: '#000000',
     onSurface: '#000000',
+    onSurfaceVariant: '#666666',
     backdrop: 'rgba(0, 0, 0, 0.5)',
   },
 };
 
-const darkTheme = {
+export const darkTheme = {
   ...MD3DarkTheme,
+  dark: true,
   fonts: configureFonts({config: fontConfig}),
   colors: {
     ...MD3DarkTheme.colors,
@@ -53,9 +57,9 @@ const darkTheme = {
     background: '#121212',
     surface: '#1E1E1E',
     text: '#FFFFFF',
+    onBackground: '#FFFFFF',
     onSurface: '#FFFFFF',
-    backdrop: 'rgba(0, 0, 0, 0.8)',
+    onSurfaceVariant: '#AAAAAA',
+    backdrop: 'rgba(0, 0, 0, 0.7)',
   },
 };
-
-export { lightTheme, darkTheme };

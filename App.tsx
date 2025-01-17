@@ -10,6 +10,7 @@ import { ProviderFormScreen } from './src/screens/onboarding/ProviderFormScreen'
 import { ProviderTutorialScreen } from './src/screens/onboarding/ProviderTutorialScreen';
 import { ProfilePhotoScreen } from './src/screens/onboarding/ProfilePhotoScreen';
 import { MainNavigator } from './src/navigation/MainNavigator';
+import { ReviewsScreen } from './src/screens/common/ReviewsScreen';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold } from '@expo-google-fonts/inter';
 import * as SplashScreen from 'expo-splash-screen';
 import { useCallback } from 'react';
@@ -61,6 +62,13 @@ export default function App() {
             <Stack.Screen name="ProviderTutorial" component={ProviderTutorialScreen} />
             <Stack.Screen name="ProfilePhoto" component={ProfilePhotoScreen} />
             <Stack.Screen name="MainApp" component={MainNavigator} />
+            <Stack.Screen 
+              name="Reviews" 
+              component={ReviewsScreen}
+              options={{
+                headerShown: false
+              }}
+            />
           </Stack.Navigator>
         </NavigationContainer>
       </PaperProvider>
